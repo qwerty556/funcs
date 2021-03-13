@@ -49,7 +49,7 @@ export function ununiq<T>(_arr:Array<T>,..._prop:Array<string|((a:T,b:T)=>number
             continue
 
         for(let y = i+1 , len = _arr.length; y < len ; y+=1|0){
-            if(equals(_arr[i],_arr[y])){
+            if(arrC[y] === 0 && equals(_arr[i],_arr[y])){
                 arrC[i] = 2
                 arrC[y] = 2
             }
@@ -61,13 +61,7 @@ export function ununiq<T>(_arr:Array<T>,..._prop:Array<string|((a:T,b:T)=>number
 
     const ununiqItemIndexs = arrC.map((n:number,i:number)=>n===2?i:-1).filter(n=>n!==-1)
 
-    return _arr.filter((item:T,i:number)=>{
-        if(i === ununiqItemIndexs[0]){
-            ununiqItemIndexs.shift()
-            return true
-        }
-        return false
-    })
+    return ununiqItemIndexs.map(_=>_arr[_])
 }
 
 type equals<T> = (a:T,b:T)=>boolean
