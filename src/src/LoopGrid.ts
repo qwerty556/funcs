@@ -1,42 +1,56 @@
 declare global {
-    interface LoopGridCurrentFocus {
+    interface GridCurrentFocus {
         H:number,
         W:number
     }
-}
 
-function makeKey(H:number,W:number):string{
-    return [H,W].join("|")
-}
+    interface GridEventHooks<T> {
+        readonly beforeFocus:Array<((...args:any[])=>void)>,
+        readonly afterFocus :Array<((...args:any[])=>void)>,
 
-function fucusedMemo<T>(focused:Set<string>,H:number,W:number){
-    const key:string = makeKey(H,W)
-    const res = focused.has(key)
-    if(!res){
-        focused.add(key)
+        readonly beforePut  :Array<((...args:any[])=>void)>,
+        readonly afterPut   :Array<((...args:any[])=>void)>,
+        readonly interceptPut:Array<((t:T)=>T)>,
+
+        readonly beforeGet  :Array<((...args:any[])=>void)>,
+        readonly afterGet   :Array<((...args:any[])=>void)>,
+        readonly interceptGet:Array<((t:T)=>T)>,
+
+        readonly interceptToArray:Array<((_:Array<Array<T>>)=>Array<Array<T>>)>,
     }
-    return res
-} 
+}
 
-class LoopGrid<T> {
-    grid:Array<Array<T>>
-    focusedSet = new Set<string>()
-    focusX:number = 0
-    focusY:number = 0
+class Grid<T> {
+
+    readonly eventHooks:GridEventHooks<T> = {
+        beforeFocus:[],afterFocus:[],
+        beforePut:[],afterPut:[],interceptPut:[],
+        beforeGet:[],afterGet:[],interceptGet:[],
+        interceptToArray:[]
+    } as GridEventHooks<T>
+
+    readonly grid:Array<Array<T>> = []
+    focusW:number = 0
+    focusH:number = 0
     
-    constructor(initdata:Array<Array<T>>,initFocusX=0,initFocusY=0) {
-        // if( initdata.length === 0 || initdata[0].length === 0 || initdata.some(_=>_.length !== initdata[0].length)){
-        //     throw Error("要素数は1以上である必要があります,子配列同士は同じ長さである必要があります")
-        // }
-        this.grid = initdata.map(_=>_.slice())
-        this.focus(initFocusX,initFocusY)
+    private constructor(initdata:Array<Array<T>>) {
+        this.grid = initdata
+    }
+
+    static of<T>(initdata:Array<Array<T>>,initfocusW=0,initfocusH=0):Grid<T>{
+        return new Grid<T>(initdata).focus(initfocusW,initfocusH)
     }
 
     toArray():Array<Array<T>>{
-        return this.grid.map(_=>_.slice())
+        return this.eventHooks.interceptToArray.reduce((__,_)=>_(__),this.grid.map(_=>_.slice()))
     }
 
-    resolutionHW(H:number,W:number):LoopGridCurrentFocus{
+    eventHook(eventSetter:(eventHooks:GridEventHooks<T>)=>GridEventHooks<T>):Grid<T>{
+        eventSetter(this.eventHooks)
+        return this
+    }
+
+    resolutionHW(H:number,W:number):GridCurrentFocus{
         const H_ = (H < 0 
             ? H - (Math.ceil(H*-1/this.grid.length) *-1 * this.grid.length)
             : H - (Math.floor(H/this.grid.length) * this.grid.length)
@@ -57,15 +71,19 @@ class LoopGrid<T> {
      * 絶対位置でフォーカス先を指定
      * @param H 
      * @param W 
-     * @returns 対象のセルに初めてフォーカスした時はtrueそれ以外はfalse
+     * @returns
      */
-    focus(H:number,W:number):boolean{
+    focus(H:number,W:number):Grid<T>{
 
-        const resolutionHW_:LoopGridCurrentFocus = this.resolutionHW(H,W)
-        this.focusX = resolutionHW_.W
-        this.focusY = resolutionHW_.H
+        this.eventHooks.beforeFocus.forEach(_=>_(...arguments))
+
+        const resolutionHW_:GridCurrentFocus = this.resolutionHW(H,W)
+        this.focusW = resolutionHW_.W
+        this.focusH = resolutionHW_.H
+
+        this.eventHooks.afterFocus.forEach(_=>_(...arguments))
         
-        return !fucusedMemo(this.focusedSet,resolutionHW_.H,resolutionHW_.W)//初回フォーカス時はtrueを返す
+        return this
     }
 
     /**
@@ -74,37 +92,39 @@ class LoopGrid<T> {
      * @param W 
      * @returns 
      */
-    move(H:number,W:number):boolean{
-        return this.focus(H+this.focusY,W+this.focusX)
+    move(H:number,W:number):Grid<T>{
+        return this.focus(H+this.focusH,W+this.focusW)
     }
 
-    currentFocus():LoopGridCurrentFocus{
+    currentFocus():GridCurrentFocus{
         return {
-            H:this.focusY,
-            W:this.focusX
-        } as LoopGridCurrentFocus
-    }
-
-    isFocused(H:number,W:number):boolean{
-        const resolutionHW_:LoopGridCurrentFocus = this.resolutionHW(H,W)
-        return this.focusedSet.has(makeKey(resolutionHW_.H,resolutionHW_.W))
-    }
-
-    forgetFocusedMemo(H:number,W:number):boolean{
-        const resolutionHW_:LoopGridCurrentFocus = this.resolutionHW(H,W)
-        return this.focusedSet.delete(makeKey(resolutionHW_.H,resolutionHW_.W))
+            H:this.focusH,
+            W:this.focusW
+        } as GridCurrentFocus
     }
 
     put(t:T):T{
-        const oldval:T = this.grid[this.focusY][this.focusX]
-        this.grid[this.focusY][this.focusX] = t
+        this.eventHooks.beforePut.forEach(_=>_(...arguments))
+
+        const oldval:T = this.grid[this.focusH][this.focusW]
+        this.grid[this.focusH][this.focusW] = this.eventHooks.interceptPut.reduce((t_:T,_)=>_(t_),t)
+
+        this.eventHooks.afterPut.forEach(_=>_(...arguments))
         return oldval
     }
 
     get():T{
-        return this.grid[this.focusY][this.focusX]
+        this.eventHooks.beforeGet.forEach(_=>_(...arguments))
+        const t_ = this.eventHooks.interceptGet.reduce((t_:T,_)=>_(t_),this.grid[this.focusH][this.focusW])
+        this.eventHooks.afterGet.forEach(_=>_(...arguments))
+        return t_
+    }
+
+    ref(refer:(_:Array<Array<T>>)=>Array<Array<T>>):Grid<T>{
+        refer(this.grid)
+        return this
     }
 }
 
 
-export default LoopGrid
+export default Grid
